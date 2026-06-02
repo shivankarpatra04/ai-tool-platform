@@ -9,7 +9,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.0",
     "@tailwindcss/typography": "^0.5.16",
     "@types/file-saver": "^2.0.7",
     "docx": "^9.3.0",

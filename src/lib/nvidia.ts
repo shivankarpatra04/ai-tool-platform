@@ -1,52 +1,67 @@
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+// NVIDIA NIM API (OpenAI-compatible) client.
+// Replaces the previous Google Generative AI integration.
+//
+// The API key lives only on the server (see .env.local + /api/nvidia route).
+// This module runs in the browser, so it talks to our own API route rather
+// than to NVIDIA directly — the key is never exposed to the client.
 
-// Initialize the Gemini API with the provided API key
-const API_KEY = 'AIzaSyDdik_qhqHsSjobemC0RAKiU6tq_0t9otQ';
-const genAI = new GoogleGenerativeAI(API_KEY);
+interface ChatMessage {
+    role: 'system' | 'user' | 'assistant';
+    content: string;
+}
 
-// Safety settings to filter out harmful content
-const safetySettings = [
-    {
-        category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-    {
-        category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-        threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    },
-];
+// Core helper: send a list of messages to the server-side NVIDIA proxy
+// (/api/nvidia) and return the assistant's reply text.
+async function nvidiaChat(
+    messages: ChatMessage[],
+    options: { temperature?: number; maxTokens?: number } = {}
+): Promise<string> {
+    const { temperature = 0.7, maxTokens = 1024 } = options;
 
-// Get the Gemini Pro model
-export const getGeminiProModel = () => {
-    return genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash',
-        safetySettings,
+    const response = await fetch('/api/nvidia', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ messages, temperature, maxTokens }),
     });
-};
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`NVIDIA proxy error ${response.status}: ${errorBody}`);
+    }
+
+    const data = await response.json();
+    return data?.content ?? '';
+}
+
+// Generic micro-tool runner: send a system prompt + the user's input and
+// return the assistant's reply. Used by the config-driven ToolRunner so every
+// tool shares one well-tested code path. Throws on failure so the caller can
+// surface an error state.
+export async function runTool(
+    systemPrompt: string,
+    userInput: string,
+    options: { temperature?: number; maxTokens?: number } = {}
+): Promise<string> {
+    return nvidiaChat(
+        [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userInput },
+        ],
+        options
+    );
+}
 
 // Generate chat response
 export async function generateChatResponse(messages: { role: string; content: string }[]) {
     try {
-        const model = getGeminiProModel();
-        const chat = model.startChat({
-            history: messages.map(msg => ({
-                role: msg.role === 'user' ? 'user' : 'model',
-                parts: [{ text: msg.content }],
-            })),
-        });
+        const chatMessages: ChatMessage[] = messages.map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: msg.content,
+        }));
 
-        const result = await chat.sendMessage('');
-        const response = await result.response;
-        const text = response.text();
-        return text;
+        return await nvidiaChat(chatMessages);
     } catch (error) {
         console.error('Error generating chat response:', error);
         return 'Sorry, I encountered an error while processing your request. Please try again.';
@@ -56,12 +71,12 @@ export async function generateChatResponse(messages: { role: string; content: st
 // Generate code based on prompt and language
 export async function generateCode(prompt: string, language: string) {
     try {
-        const model = getGeminiProModel();
-        const result = await model.generateContent(
-            `Generate ${language} code for the following request: ${prompt}\n\nPlease provide only the code without explanations.`
-        );
-        const response = await result.response;
-        return response.text();
+        return await nvidiaChat([
+            {
+                role: 'user',
+                content: `Generate ${language} code for the following request: ${prompt}\n\nPlease provide only the code without explanations.`,
+            },
+        ]);
     } catch (error) {
         console.error('Error generating code:', error);
         return `// Error generating code\n// Please try again with a different prompt`;
@@ -80,14 +95,11 @@ export async function generateContent(params: {
         const { topic, contentType, tone, wordCount, keywords } = params;
         const keywordsPrompt = keywords ? `and include these keywords: ${keywords}` : '';
 
-        const prompt = `Write a ${contentType} about "${topic}" in a ${tone} tone. 
-    The content should be approximately ${wordCount} words ${keywordsPrompt}. 
+        const prompt = `Write a ${contentType} about "${topic}" in a ${tone} tone.
+    The content should be approximately ${wordCount} words ${keywordsPrompt}.
     Format the output in Markdown.`;
 
-        const model = getGeminiProModel();
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        return response.text();
+        return await nvidiaChat([{ role: 'user', content: prompt }]);
     } catch (error) {
         console.error('Error generating content:', error);
         return `# Error Generating Content
@@ -177,7 +189,7 @@ export async function generateResume(params: {
             }
         });
 
-        prompt += `\n    
+        prompt += `\n
     Format it professionally with clean spacing, clear section headers, and elegant formatting.
     Use proper indentation, bullet points for skills and achievements, and ensure consistent styling throughout.
     Make it visually appealing and well-structured for both human readers and ATS systems.
@@ -187,10 +199,7 @@ export async function generateResume(params: {
     For the Education section, format each entry with the degree, institution name, and dates.
     The resume should look similar to a traditional professional resume with proper alignment and formatting.`;
 
-        const model = getGeminiProModel();
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        return response.text();
+        return await nvidiaChat([{ role: 'user', content: prompt }], { maxTokens: 2048 });
     } catch (error) {
         console.error('Error generating resume:', error);
         // Enhanced fallback template with better HTML formatting is handled in the page component
@@ -201,12 +210,12 @@ export async function generateResume(params: {
 // Generate summary of content
 export async function generateSummary(content: string, wordCount: string = '150') {
     try {
-        const model = getGeminiProModel();
-        const result = await model.generateContent(
-            `Summarize the following content in approximately ${wordCount} words:\n\n${content}`
-        );
-        const response = await result.response;
-        return response.text();
+        return await nvidiaChat([
+            {
+                role: 'user',
+                content: `Summarize the following content in approximately ${wordCount} words:\n\n${content}`,
+            },
+        ]);
     } catch (error) {
         console.error('Error generating summary:', error);
         return `Error generating summary. Please try again with different content.`;
@@ -216,9 +225,8 @@ export async function generateSummary(content: string, wordCount: string = '150'
 // Generate task analysis and breakdown
 export async function generateTaskAnalysis(taskDescription: string): Promise<TaskAnalysisResult> {
     try {
-        const model = getGeminiProModel();
         const prompt = `You are a task analysis assistant. Analyze the following task and provide a detailed breakdown.
-        
+
 Task: ${taskDescription}
 
 Provide a structured analysis following these EXACT guidelines:
@@ -245,7 +253,7 @@ Your response MUST be a valid JSON object with this EXACT structure:
     ]
 }
 
-Ensure all values are strings and the JSON is properly formatted.`;
+Ensure all values are strings and the JSON is properly formatted. Respond with ONLY the JSON object, no markdown code fences or extra text.`;
 
         // Make up to 3 attempts to get a valid JSON response
         let attempts = 0;
@@ -254,12 +262,18 @@ Ensure all values are strings and the JSON is properly formatted.`;
 
         while (attempts < maxAttempts) {
             try {
-                const result = await model.generateContent(prompt);
-                const response = await result.response;
-                const analysisText = response.text();
+                const analysisText = await nvidiaChat([{ role: 'user', content: prompt }], {
+                    temperature: 0.2,
+                });
+
+                // Strip possible markdown code fences before parsing
+                const cleaned = analysisText
+                    .replace(/```(?:json)?/gi, '')
+                    .replace(/```/g, '')
+                    .trim();
 
                 // Attempt to parse and validate the JSON response
-                analysisResult = JSON.parse(analysisText) as TaskAnalysisResult;
+                analysisResult = JSON.parse(cleaned) as TaskAnalysisResult;
 
                 // Validate required fields and format
                 if (isValidTaskAnalysis(analysisResult)) {
