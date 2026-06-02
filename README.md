@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Tools Platform
 
-## Getting Started
+A collection of micro AI tools — plus a no-code builder so users can create their
+own — powered by the [NVIDIA NIM API](https://build.nvidia.com) and built with
+[Next.js](https://nextjs.org) (App Router) and Tailwind CSS.
 
-First, run the development server:
+## Features
+
+- **12 built-in tools** — bio generator, Twitter thread maker, cold email writer,
+  headline generator, meeting summarizer, resume bullet rewriter, weekly planner,
+  ELI5 explainer, regex generator, SQL query builder, code reviewer, and git
+  commit message writer.
+- **Build your own tool** — a visual builder (`/tools/new`) lets anyone create a
+  custom AI tool with a live preview, icon/color pickers, and configurable
+  inputs. Custom tools are saved in the browser (localStorage) and can be run,
+  edited, or deleted — no account needed.
+- **Server-side API key** — all model calls go through a `/api/nvidia` proxy, so
+  the API key stays on the server and is never exposed to the browser.
+- **Polished UI** — token-driven design system with light/dark mode, rich
+  markdown output, and syntax-highlighted code blocks.
+
+## Environment variables
+
+| Variable          | Required | Default                                                  | Description                                  |
+| ----------------- | -------- | -------------------------------------------------------- | -------------------------------------------- |
+| `NVIDIA_API_KEY`  | ✅ Yes   | —                                                        | Your NVIDIA NIM API key (server-side only).  |
+| `NVIDIA_BASE_URL` | No       | `https://integrate.api.nvidia.com/v1/chat/completions`   | Chat completions endpoint.                   |
+| `NVIDIA_MODEL`    | No       | `meta/llama-3.1-8b-instruct`                             | Model to use for all tools.                  |
+
+See [`.env.example`](.env.example) for a template.
+
+## Local development
 
 ```bash
+# 1. Install dependencies
+npm install
+
+# 2. Create your env file and add your key
+cp .env.example .env.local   # then edit .env.local
+
+# 3. Run the dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+This app deploys to Vercel with **zero configuration** — Vercel auto-detects
+Next.js and runs `next build`. No `vercel.json` is required.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Push the repo to GitHub (already done).
+2. In [Vercel](https://vercel.com/new), click **Add New → Project** and import
+   this GitHub repository.
+3. Before deploying, open **Settings → Environment Variables** and add:
+   - `NVIDIA_API_KEY` (required) — your key
+   - `NVIDIA_BASE_URL` (optional)
+   - `NVIDIA_MODEL` (optional)
+
+   Add them to the **Production** (and Preview, if you want) environments.
+4. Click **Deploy**.
+
+> **Note:** the build itself succeeds without the key (it's only read at request
+> time), but the tools won't return results until `NVIDIA_API_KEY` is set. If you
+> add or change env vars after the first deploy, redeploy for them to take effect.
+
+## Tech stack
+
+- Next.js 15 (App Router) · React 19 · TypeScript
+- Tailwind CSS v4 · `next-themes` for dark mode
+- `react-markdown` + `react-syntax-highlighter` for rendering AI output
+- NVIDIA NIM (OpenAI-compatible) chat completions API
